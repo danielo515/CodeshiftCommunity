@@ -1,68 +1,30 @@
 import fs from 'fs-extra';
-import tar from 'tar';
+import { exec } from 'child_process';
 
-// @ts-ignore
-import RegClient from 'npm-registry-client';
+export default async function publishPackages(path: string, authToken: string) {
+  return Promise.all(
+    fs.readdirSync(path).map(
+      dir =>
+        new Promise((resolve, reject) => {
+          exec(
+            `npm set //registry.npmjs.org/:_authToken=${authToken} && npm publish`,
+            { cwd: `${path}/${dir}` },
+            (error, stdout, stderr) => {
+              if (error) {
+                reject(error);
+                return;
+              }
 
-// TODO: dependency inject this instance
-const client = new RegClient();
-const npmUri = 'https://registry.npmjs.org/';
+              if (stderr) {
+                console.error(stderr);
+              }
 
-interface PublishPackageOptions {
-  metadata: Record<string, string>;
-  access: 'public' | 'restricted';
-  token: string;
-  body: any;
-}
+              console.log(stdout);
 
-function publishPackage(
-  packageName: string,
-  { metadata, access, body, token }: PublishPackageOptions,
-) {
-  return new Promise<void>((resolve, reject) =>
-    client.publish(
-      npmUri,
-      { metadata, access, body, auth: { token } },
-      (error: any) => {
-        if (error) {
-          reject(
-            `Unexpected error when publishing ${packageName} to NPM: ${error}`,
+              resolve(stdout);
+            },
           );
-        }
-        resolve();
-      },
+        }),
     ),
   );
-}
-
-export default function publishPackages(path: string, authToken: string) {
-  return Promise.all(
-    fs.readdirSync(path).map(async dir => {
-      const packageName = `@codeshift/mod-${dir
-        .replace('@', '')
-        .replace('/', '__')}`;
-      const packagePath = `${path}/${dir}`;
-      const packageJson = await fs.readFile(`${packagePath}/package.json`);
-      const tarballPath = `${packagePath}/tarball.tgz`;
-
-      await tar.create(
-        {
-          cwd: packagePath,
-          file: tarballPath,
-          gzip: true,
-        },
-        ['.'],
-      );
-
-      await publishPackage(packageName, {
-        // @ts-ignore
-        metadata: JSON.parse(packageJson),
-        access: 'public',
-        body: fs.createReadStream(tarballPath),
-        token: authToken,
-      });
-    }),
-  ).catch(err => {
-    throw new Error(err);
-  });
 }
